@@ -1,0 +1,396 @@
+{
+  "name": "Asistente Dental",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "063e6d8b-62df-4d2b-a37f-ddae642df61e",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -592,
+        -304
+      ],
+      "id": "69c198f0-ece4-46b1-95ad-95200cda78e3",
+      "name": "Webhook",
+      "webhookId": "063e6d8b-62df-4d2b-a37f-ddae642df61e"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "f0bb1100-3155-442d-ae16-b4a262613825",
+              "name": "id",
+              "value": "={{ $json.body.data.key.remoteJid }}",
+              "type": "string"
+            },
+            {
+              "id": "248cd32b-4cbe-4ea5-a5ec-2c8d1a9b0bbc",
+              "name": "name",
+              "value": "={{ $json.body.data.pushName }}",
+              "type": "string"
+            },
+            {
+              "id": "7dbce4bd-3c42-4180-8dd5-50c8a7c0f456",
+              "name": "conversation",
+              "value": "={{ $json.body.data.message.conversation }}",
+              "type": "string"
+            },
+            {
+              "id": "8a76e3db-a1e9-424c-8854-aabc95f1b792",
+              "name": "contact",
+              "value": "={{ $json.body.sender }}",
+              "type": "string"
+            },
+            {
+              "id": "b80bd4e2-721a-4190-baef-f2775c00cfa0",
+              "name": "fecha",
+              "value": "={{ $json.body.date_time }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -400,
+        -448
+      ],
+      "id": "15d59bb1-1c53-4004-8d79-6328b53feabe",
+      "name": "Datos"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Eres un asistente virtual de una clínica dental especializada en atención profesional y cordial.\n\nTu tarea es analizar el siguiente mensaje del cliente y decidir entre:\n1) Extraer la información completa si el mensaje permite reservar, o\n2) Solicitar los datos faltantes de forma clara y específica.\n\nMensaje del cliente: \"{{ $json[\"texto_original\"] }}\"\n\nTu respuesta debe cumplir lo siguiente:\n\nSi el mensaje contiene datos suficientes para crear una cita:\n- Responde solo con un JSON válido (sin markdown, sin backticks, sin texto adicional) que incluya:\n{\n  \"nombre_cliente\": \"...\",\n  \"tamanio_grupo\": ...,\n  \"contacto\": \"{{ $json[\"contacto\"] }}\",\n  \"fecha_reserva\": \"...\",   // Formato YYYY-MM-DD (si dice \"hoy\" usa {{ $json[\"fecha_hora_recibido\"] }})\n  \"hora_reserva\": \"...\"     // Formato 24h si es posible\n}\n\nSi faltan datos (por ejemplo: nombre, servicio, fecha u hora):\n- No devuelvas JSON.\n- Envía una respuesta cordial con preguntas específicas para completar la reserva.\n- Incluye ejemplos de servicios como limpieza dental, consulta, ortodoncia, revisión o blanqueamiento.\n\nEjemplo de respuesta solicitando datos faltantes:\n\"Gracias por contactarnos. Para agendar tu cita, indícame tu nombre completo y el servicio que deseas (limpieza dental, consulta, revisión, entre otros).\"\n\nImportante:\n- No incluyas formato Markdown.\n- No uses código ni backticks.\n- Pregunta solo por información que realmente falte según el mensaje recibido.\n",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3,
+      "position": [
+        48,
+        -544
+      ],
+      "id": "22ae5a75-9c09-49d9-9775-9ffdef618443",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "mode": "list",
+          "value": "gpt-4.1-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        48,
+        -336
+      ],
+      "id": "880c7a03-3fae-481f-93d8-92e82f7bceac",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "MhKwz86LFJxXCYNO",
+          "name": "OpenAi account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const salida = [];\n\nfor (const item of items) {\n  // TOMAMOS LOS CAMPOS SEGÚN TU ESTRUCTURA REAL\n  const mensaje   = item.json.conversation || \"\";  // <- AQUÍ ESTÁ EL TEXTO\n  const id        = item.json.id || null;\n  const nombre    = item.json.name || null;\n  const contacto  = item.json.contact || null;\n  const fecha     = item.json.fecha || null;\n\n  // --- INTENCIÓN ---\n  const esReserva = /cita|reservar|reserva/i.test(mensaje);\n\n  // --- EXTRACCIÓN DE HORA ---\n  let horaTexto = null;\n  let hora24 = null;\n\n  if (mensaje) {\n    const texto = mensaje;\n\n    // 1) Primero: horas con AM/PM, ej: \"10:00 a.m\", \"7 pm\"\n    const regexAmPm = /(\\d{1,2})\\s*(?::(\\d{2}))?\\s*(a\\.?m\\.?|p\\.?m\\.?)/gi;\n    let matchAmPm;\n    let ultimaAmPm = null;\n\n    while ((matchAmPm = regexAmPm.exec(texto)) !== null) {\n      ultimaAmPm = matchAmPm; // nos quedamos con la última\n    }\n\n    if (ultimaAmPm) {\n      let hora = parseInt(ultimaAmPm[1], 10);\n      const minutos = ultimaAmPm[2] ? parseInt(ultimaAmPm[2], 10) : 0;\n      const ampm = ultimaAmPm[3] ? ultimaAmPm[3].toLowerCase() : null;\n\n      if (ampm) {\n        if (ampm.includes('p') && hora !== 12) hora += 12;\n        if (ampm.includes('a') && hora === 12) hora = 0;\n      }\n\n      const mm = minutos.toString().padStart(2, '0');\n      const hh = hora.toString().padStart(2, '0');\n\n      horaTexto = ultimaAmPm[0];      // texto original, ej: \"10:00 a.m\"\n      hora24 = `${hh}:${mm}`;         // ej: \"10:00\"\n    } else {\n      // 2) Si no hay AM/PM, buscamos formato 24h: \"19:00\", \"09:30\"\n      const regex24 = /\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b/g;\n      let match24;\n      let ultima24 = null;\n\n      while ((match24 = regex24.exec(texto)) !== null) {\n        ultima24 = match24;\n      }\n\n      if (ultima24) {\n        const hora = parseInt(ultima24[1], 10);\n        const minutos = parseInt(ultima24[2], 10);\n\n        const mm = minutos.toString().padStart(2, '0');\n        const hh = hora.toString().padStart(2, '0');\n\n        horaTexto = ultima24[0];\n        hora24 = `${hh}:${mm}`;\n      }\n    }\n  }\n\n  // --- REFERENCIA DE FECHA EN EL TEXTO ---\n  let fechaReferencia = null;\n  if (/hoy/i.test(mensaje)) fechaReferencia = 'hoy';\n  else if (/mañana/i.test(mensaje)) fechaReferencia = 'mañana';\n\n  // --- SALIDA LISTA PARA ANÁLISIS (sin campos null) ---\n  const obj = {\n    id,\n    nombre,\n    contacto,\n    texto_original: mensaje,\n    fecha_hora_recibido: fecha,\n    intencion: esReserva ? 'solicitud_cita' : 'desconocida',\n  };\n\n  if (horaTexto) obj.hora_detectada_texto = horaTexto;\n  if (hora24) obj.hora_detectada_24h = hora24;\n  if (fechaReferencia) obj.fecha_referencia_texto = fechaReferencia;\n\n  salida.push({ json: obj });\n}\n\nreturn salida;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -208,
+        -304
+      ],
+      "id": "add4a65c-91ac-4d07-a9e2-a1d68bfec2c3",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "operation": "sendAndWait",
+        "sendTo": "linethguerra.lg02@gmail.com",
+        "subject": "Consulta cita dental",
+        "message": "={{ $json.respuesta_cliente }}",
+        "approvalOptions": {
+          "values": {
+            "approvalType": "double",
+            "buttonApprovalStyle": "secondary"
+          }
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        640,
+        -208
+      ],
+      "id": "2b377ab0-882a-44b2-97df-08c835709d31",
+      "name": "Send message and wait for response",
+      "webhookId": "94ac1112-7bc7-4780-9c9c-ab78718c4f1b",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "izBKc9x4UCa5qJ75",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "calendar": {
+          "__rl": true,
+          "value": "linethguerra.lg02@gmail.com",
+          "mode": "list",
+          "cachedResultName": "linethguerra.lg02@gmail.com"
+        },
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        1184,
+        -224
+      ],
+      "id": "c09a6872-bd0f-4c5b-b6d8-977b5a63bfd8",
+      "name": "Create an event",
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "bzjmKTg4irfPnhE8",
+          "name": "Google Calendar account 6"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a7dc16b8-ab48-4354-bc5e-7df4f9db8773",
+              "leftValue": "={{ $json.data.approved }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        896,
+        -208
+      ],
+      "id": "fd18cd86-8c19-4c25-a351-1018edf95052",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "sendTo": "linethguerra.lg02@gmail.com",
+        "subject": "Consulta de cita",
+        "message": "=Lamentablemente la cita a las , {{ $('Code in JavaScript').item.json.hora_detectada_texto }} , no esta disponible",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        928,
+        32
+      ],
+      "id": "f37757be-acca-4f78-a24e-c8262333b426",
+      "name": "cancelacion",
+      "webhookId": "a2cfc928-773c-4802-850a-b18d87cb3af5",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "izBKc9x4UCa5qJ75",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "linethguerra.lg02@gmail.com",
+        "subject": "Confirmación de cita dental ",
+        "message": "=Cita confirmada {{ $('Datos').item.json.name }} para el día y fecha.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1440,
+        -224
+      ],
+      "id": "4f1353a0-1d7d-435a-b213-f75dcd454d11",
+      "name": "confirmacion",
+      "webhookId": "ae9e6d77-b2f1-442e-b244-34a782e5836d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "izBKc9x4UCa5qJ75",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const resultados = [];\n\nfor (const item of items) {\n  const data = item.json;\n\n  // ==============================\n  // 1) NOMBRE\n  // ==============================\n  const nombre = data.nombre || data.nombre_cliente || \"cliente\";\n\n  // ==============================\n  // 4) DISPONIBILIDAD ESTÁTICA (la movemos arriba)\n  // ==============================\n  const disponibilidad = [\n    { date: \"2025-12-06\", time: \"19:00\", available: false },\n    { date: \"2025-12-06\", time: \"20:00\", available: true },\n\n    { date: \"2025-12-07\", time: \"10:00\", available: true },\n    { date: \"2025-12-07\", time: \"13:00\", available: true },\n    { date: \"2025-12-07\", time: \"19:00\", available: false }\n  ];\n\n  // Lista de horarios disponibles (true)\n  const listaDisponibles = disponibilidad\n    .filter(s => s.available)\n    .map(s => `${s.date} ${s.time}`)\n    .join(\", \");\n\n  // ==============================\n  // 2) FECHA EXTRAÍDA DEL MENSAJE\n  // ==============================\n  let fecha = data.fecha_reserva || null;\n\n  if (!fecha && data.texto_original) {\n    const texto = data.texto_original;\n    const regexFecha = /(\\d{4})[-\\/\\.](\\d{2})[-\\/\\.](\\d{2})/;\n    const coinc = texto.match(regexFecha);\n    if (coinc) fecha = `${coinc[1]}-${coinc[2]}-${coinc[3]}`;\n  }\n\n  if (!fecha && data.fecha_hora_recibido) {\n    const d = new Date(data.fecha_hora_recibido);\n    const ref = (data.fecha_referencia_texto || \"\").toLowerCase().trim();\n    if (ref === \"mañana\") d.setDate(d.getDate() + 1);\n    fecha = d.toISOString().split(\"T\")[0];\n  }\n\n  // ==============================\n  // 3) HORA desde entrada\n  // ==============================\n  let hora = data.hora_reserva || data.hora_detectada_24h || null;\n\n  // Si falta fecha u hora, mostramos horarios disponibles pero SIN imprimir null\n  if (!fecha || !hora) {\n    resultados.push({\n      json: {\n        disponible: false,\n        respuesta_cliente:\n          \"Hola \" + $('Datos').first().json.name +\n          \", no tenemos disponibilidad en la hora indicada. ¿Podrías indicarme la fecha (YYYY-MM-DD) y otra hora?\" +\n          (listaDisponibles ? \" Horarios disponibles: \" + listaDisponibles : \"\")\n      }\n    });\n    continue;\n  }\n\n  // ==============================\n  // ORDENAR PARA SUGERENCIAS\n  // ==============================\n  const disponibilidadOrdenada = [...disponibilidad].sort((a, b) => {\n    if (a.date === b.date) return a.time.localeCompare(b.time);\n    return a.date.localeCompare(b.date);\n  });\n\n  // ==============================\n  // 5) CHEQUEO EXACTO\n  // ==============================\n  const match = disponibilidad.find(slot => slot.date === fecha && slot.time === hora);\n  let disponible = match ? !!match.available : false;\n\n  // ==============================\n  // 6) CONSTRUIR RESPUESTA\n  // ==============================\n  let respuesta;\n\n  if (disponible) {\n    respuesta =\n      \"Hola \" + nombre +\n      \", tenemos disponibilidad el \" + fecha +\n      \" a las \" + hora +\n      \". ¿Deseas que confirme tu cita?\" +\n      (listaDisponibles ? \"\\n\\nHorarios disponibles: \" + listaDisponibles : \"\");\n  } else {\n    let siguienteSlot = null;\n\n    for (const slot of disponibilidadOrdenada) {\n      if (!slot.available) continue;\n      if (slot.date < fecha) continue;\n      if (slot.date === fecha && slot.time <= hora) continue;\n      siguienteSlot = slot;\n      break;\n    }\n\n    if (siguienteSlot) {\n      if (siguienteSlot.date === fecha) {\n        respuesta =\n          \"Hola \" + nombre +\n          \", no tenemos disponibilidad el \" + fecha +\n          \" a las \" + hora +\n          \". El siguiente horario disponible ese día es a las \" +\n          siguienteSlot.time + \". ¿Te gustaría reservarlo?\";\n      } else {\n        respuesta =\n          \"Hola \" + nombre +\n          \", no tenemos disponibilidad el \" + fecha +\n          \" a las \" + hora +\n          \". El siguiente horario disponible es el \" +\n          siguienteSlot.date + \" a las \" + siguienteSlot.time +\n          \". ¿Te gustaría reservarlo?\";\n      }\n    } else {\n      respuesta =\n        \"Hola \" + nombre +\n        \", no tenemos disponibilidad el \" + fecha +\n        \" a las \" + hora +\n        \" ni contamos con otros horarios disponibles en las fechas configuradas. ¿Te gustaría intentar con otra fecha?\";\n    }\n\n    if (listaDisponibles) {\n      respuesta += \"\\n\\nHorarios disponibles: \" + listaDisponibles;\n    }\n  }\n\n  //  Construimos el output SIN imprimir null\n  const salida = {\n    disponible,\n    respuesta_cliente: respuesta\n  };\n  if (fecha) salida.fecha_reserva = fecha;\n  if (hora) salida.hora_reserva = hora;\n\n  resultados.push({ json: salida });\n}\n\nreturn resultados;\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        432,
+        -416
+      ],
+      "id": "ae73c2ca-fd29-499e-b48e-767dbb90ffff",
+      "name": "chat"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Datos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Datos": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "chat",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send message and wait for response": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create an event": {
+      "main": [
+        [
+          {
+            "node": "confirmacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Create an event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "cancelacion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "confirmacion": {
+      "main": [
+        []
+      ]
+    },
+    "chat": {
+      "main": [
+        [
+          {
+            "node": "Send message and wait for response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "51cb22c3-7984-4614-abd3-4f2aef6ca335",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ce127e68050a11971b7484fb87935c5075e6c68de08a6d8286030ac40d867cfc"
+  },
+  "id": "VEGR146AgEPSQZPM",
+  "tags": []
+}
